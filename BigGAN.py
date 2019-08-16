@@ -282,13 +282,15 @@ def D_arch(ch=64, attention='64',ksize='333333', dilation='111111'):
 
 class Discriminator(nn.Module):
 
-  def __init__(self, D_ch=64, D_wide=True, resolution=128,
+  def __init__(self, dim_z=128, D_ch=64, D_wide=True, resolution=128,
                D_kernel_size=3, D_attn='64', n_classes=1000,
                num_D_SVs=1, num_D_SV_itrs=1, D_activation=nn.ReLU(inplace=False),
                D_lr=2e-4, D_B1=0.0, D_B2=0.999, adam_eps=1e-8,
-               SN_eps=1e-12, output_dim=1, D_mixed_precision=False, D_fp16=False,
+               SN_eps=1e-12, D_mixed_precision=False, D_fp16=False,
                D_init='ortho', skip_init=False, D_param='SN', **kwargs):
     super(Discriminator, self).__init__()
+    # Dimensionality of the latent space
+    self.dim_z = dim_z
     # Width multiplier
     self.ch = D_ch
     # Use Wide D as in BigGAN and SA-GAN or skinny D as in SN-GAN?
@@ -348,7 +350,7 @@ class Discriminator(nn.Module):
     self.blocks = nn.ModuleList([nn.ModuleList(block) for block in self.blocks])
     # Linear output layer. The output dimension is typically 1, but may be
     # larger if we're e.g. turning this into a VAE with an inference output
-    self.linear = self.which_linear(self.arch['out_channels'][-1], output_dim)
+    self.linear = self.which_linear(self.arch['out_channels'][-1], self.dim_z)
     # Embedding for projection discrimination
     self.embed = self.which_embedding(self.n_classes, self.arch['out_channels'][-1])
 
@@ -398,10 +400,11 @@ class Discriminator(nn.Module):
     # Apply global sum pooling as in SN-GAN
     h = torch.sum(self.activation(h), [2, 3])
     # Get initial class-unconditional output
-    out = self.linear(h)
+    z = self.linear(h)
+    out = torch.mean(z, 1, keepdim=True)
     # Get projection of final featureset onto class vectors and add to evidence
     out = out + torch.sum(self.embed(y) * h, 1, keepdim=True)
-    return out
+    return out, z
 
 # Parallelized G_D to minimize cross-gpu communication
 # Without this, Generator outputs would get all-gathered and then rebroadcast.
